@@ -26,8 +26,8 @@ class GeminiGratuitoNotebook:
     def __init__(self, api_key: str):
         # Inicializar el cliente oficial de Google GenAI
         self.client = genai.Client(api_key=api_key)
-        # Modelo Gemini 2.5 Flash (Gratuito permanente en Google AI Studio)
-        self.model_name = "gemini-2.5-flash"
+        # Modelo Gemini 3.6 Flash (reemplaza a 2.5 Flash, descontinuado para proyectos nuevos)
+        self.model_name = "gemini-3.6-flash"
 
     def upload_file(self, file_path: str, max_retries: int = 3):
         """Sube el archivo a la File API de Gemini, con reintentos y detalle de error real."""
