@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import tempfile
 import traceback
@@ -6,6 +7,41 @@ import streamlit as st
 from google import genai
 from google.genai import types
 from google.genai import errors as genai_errors
+
+# Archivo donde guardamos qué documentos ya se subieron a Gemini,
+# para no perderlos si se recarga la página (persiste mientras el
+# contenedor de Streamlit siga vivo; se pierde si la app se reinicia
+# o duerme, y los archivos igual expiran a las 48h en los servidores de Gemini).
+SOURCES_FILE = os.path.join(tempfile.gettempdir(), "notebook_sources.json")
+
+
+def guardar_referencias_en_disco(file_refs):
+    data = [{"name": f.name, "display_name": getattr(f, "display_name", f.name)} for f in file_refs]
+    try:
+        with open(SOURCES_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass  # si no se puede guardar, simplemente no persiste; no es crítico
+
+
+def cargar_referencias_desde_disco(client):
+    if not os.path.exists(SOURCES_FILE):
+        return [], []
+    try:
+        with open(SOURCES_FILE, "r") as f:
+            data = json.load(f)
+    except Exception:
+        return [], []
+
+    recuperados = []
+    expirados = []
+    for item in data:
+        try:
+            file_ref = client.files.get(name=item["name"])
+            recuperados.append(file_ref)
+        except Exception:
+            expirados.append(item["display_name"])
+    return recuperados, expirados
 
 # -----------------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE PÁGINA E INTERFAZ
@@ -147,6 +183,21 @@ if "uploaded_files_ref" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# Al recargar la página, intentar recuperar automáticamente las fuentes
+# ya subidas anteriormente, en vez de pedir subirlas de nuevo.
+if "sources_restored" not in st.session_state:
+    st.session_state.sources_restored = True
+    if not st.session_state.uploaded_files_ref:
+        with st.spinner("Buscando fuentes previamente cargadas..."):
+            recuperados, expirados = cargar_referencias_desde_disco(notebook.client)
+        if recuperados:
+            st.session_state.uploaded_files_ref = recuperados
+            st.sidebar.info(f"♻️ Se recuperaron {len(recuperados)} fuente(s) de la sesión anterior.")
+        if expirados:
+            st.sidebar.warning(
+                f"⏱️ Estas fuentes ya expiraron (48h) y hay que volver a subirlas: {', '.join(expirados)}"
+            )
+
 # -----------------------------------------------------------------------------
 # 4. BARRA LATERAL: CARGA DE ARCHIVOS
 # -----------------------------------------------------------------------------
@@ -186,8 +237,18 @@ if uploaded_files and st.sidebar.button("📂 Procesar Fuentes"):
 
     if exitosos:
         st.sidebar.success(f"✅ {exitosos} fuente(s) procesada(s) con éxito.")
+        guardar_referencias_en_disco(st.session_state.uploaded_files_ref)
     if fallidos:
         st.sidebar.error(f"❌ No se pudieron procesar: {', '.join(fallidos)}")
+
+if st.session_state.uploaded_files_ref:
+    st.sidebar.caption(f"📚 {len(st.session_state.uploaded_files_ref)} fuente(s) activa(s) en esta sesión.")
+    if st.sidebar.button("🗑️ Olvidar fuentes guardadas"):
+        st.session_state.uploaded_files_ref = []
+        if os.path.exists(SOURCES_FILE):
+            os.remove(SOURCES_FILE)
+        st.sidebar.success("Fuentes olvidadas. Puedes subir documentos nuevos.")
+        st.rerun()
 
 # -----------------------------------------------------------------------------
 # 5. PESTAÑAS PRINCIPALES DE LA APLICACIÓN
