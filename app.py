@@ -29,6 +29,19 @@ class GeminiGratuitoNotebook:
     def upload_file(self, file_path: str):
         """Sube el archivo a la File API de Gemini"""
         file_ref = self.client.files.upload(file=file_path)
+         try:
+        file_ref = self.client.files.upload(file=file_path)
+        return file_ref
+    except Exception as e:
+        import streamlit as st
+        st.error(f"Tipo de error: {type(e).__name__}")
+        st.code(str(e))
+        # también útil ver los atributos internos si existen
+        if hasattr(e, "status_code"):
+            st.write("Status code:", e.status_code)
+        if hasattr(e, "response_json") or hasattr(e, "details"):
+            st.write("Detalles:", getattr(e, "response_json", getattr(e, "details", None)))
+        raise
         while file_ref.state.name == "PROCESSING":
             time.sleep(1)
             file_ref = self.client.files.get(name=file_ref.name)
